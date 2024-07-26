@@ -2,6 +2,7 @@ import re
 import difflib
 import argparse
 import os
+from itertools import takewhile
 
 # Step 1: Extract text from SRT file
 # additional automatic cleanup can be performed here
@@ -41,7 +42,7 @@ def get_lcs(a: str, b: str, memo={}):
 
     head_a, tail_a = a[0], a[1:]
     without_head_a = get_lcs(tail_a, b)
-    with_head_a = "" if b.find(head_a) < 0 else head_a + get_lcs(tail_a, b[b.find(head_a)+1:], memo)
+    with_head_a = "" if (found := b.find(head_a)) < 0 else head_a + get_lcs(tail_a, b[found+1:], memo)
 
     memo[(a, b)] = with_head_a if len(with_head_a) > len(without_head_a) else without_head_a
         
@@ -51,32 +52,27 @@ def construct_granular_diff(a: str, b: str):
     lcs = get_lcs(a, b)
     diff = []
 
-    i = j = k = 0
+    # Initialize the index variables to start at the beginning of a, b, and LCS
+    a_index = b_index = lcs_index = 0 
 
-    while k < len(lcs):
-        if i < len(a) and a[i] != lcs[k] and (j >= len(b) or b[j] != lcs[k]):
-            diff.append((a[i], b[j]))
-            i, j = i+1, j+1
-        elif i < len(a) and a[i] != lcs[k]:
-            start_i = i
-            while i < len(a) and (k >= len(lcs) or a[i] != lcs[k]):
-                i += 1
-            diff.append((a[start_i:i], ''))
-        elif j < len(b) and b[j] != lcs[k]:
-            start_j = j
-            while j < len(b) and (k >= len(lcs) or b[j] != lcs[k]):
-                j += 1
-            diff.append(('', b[start_j:j]))
+    while lcs_index < len(lcs):
+        # Case 1: Characters in 'a' or 'b' do not match the current LCS character.
+        if a[a_index] != lcs[lcs_index] or b[b_index] != lcs[lcs_index]:
+            a_start, b_start = a_index, b_index
+            a_index = next_a if (next_a := a.find(lcs[lcs_index], a_index)) >= 0 else len(a)
+            b_index = next_b if (next_b := b.find(lcs[lcs_index], b_index)) >= 0 else len(b)
+            diff.append((a[a_start:a_index], b[b_start:b_index]))
 
-        if i < len(a) and j < len(b) and k < len(lcs) and a[i] == lcs[k] and b[j] == lcs[k]:
-            start_i, start_j = i, j
-            while i < len(a) and j < len(b) and k < len(lcs) and a[i] == lcs[k] and b[j] == lcs[k]:
-                i, j, k = i+1, j+1, k+1
-            diff.append((a[start_i:i], b[start_j:j]))
+        # Case 2: Characters in both 'a' and 'b' match the current LCS character
+        overlap = ''.join(_[0] for _ in takewhile(lambda x: x[0] == x[1] == x[2], zip(a[a_index:], b[b_index:], lcs[lcs_index:])))
+        length = len(overlap)
+        a_index, b_index, lcs_index = a_index+length, b_index+length, lcs_index+length
+        
+        diff.append((overlap, overlap))  # Add the grouped matching segments
 
     # Handle remaining characters after the LCS is fully traversed
-    if i < len(a) or j < len(b):
-        diff.append((a[i:], b[j:]))
+    if a_index < len(a) or b_index < len(b):
+        diff.append((a[a_index:], b[b_index:]))
 
     return diff
     
@@ -205,13 +201,13 @@ def adjust_punctuation_ja(subtitles):
         current_sub = subtitles[i]
         next_sub = subtitles[i + 1]
 
-        # Move periods and commas to the end of the current subtitle
-        if next_sub['text'] and next_sub['text'][0] in '。、':
+        # Move these characters to the end of the current subtitle
+        if next_sub['text'] and next_sub['text'][0] in '）｝］】」』〟。、！？':
             current_sub['text'] += next_sub['text'][0]
             next_sub['text'] = next_sub['text'][1:]
 
-        # Move opening brackets to the beginning of the next subtitle
-        if current_sub['text'] and current_sub['text'][-1] in '「『（':
+        # Move these characters to the beginning of the next subtitle
+        if current_sub['text'] and current_sub['text'][-1] in '（｛［【「『〝':
             next_sub['text'] = current_sub['text'][-1] + next_sub['text']
             current_sub['text'] = current_sub['text'][:-1]
 
