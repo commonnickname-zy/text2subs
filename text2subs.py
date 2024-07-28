@@ -9,10 +9,14 @@ from itertools import takewhile
 def extract_text_from_srt(srt_file):
     with open(srt_file, 'r', encoding='utf-8') as file:
         srt_content = file.read()
-    pattern = re.compile(r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3})\n(.*?)\n\n', re.DOTALL)
+
+    pattern = re.compile(r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3})\n(.*?)(?:\n{2,}|\Z)', re.DOTALL)
     matches = pattern.findall(srt_content)
-    subtitles = [{'index': i + 1, 'timestamp': timestamp, 'text': text.replace('\n', '')} for i, (_, timestamp, text) in enumerate(matches)]
+
+    # Process matches to construct subtitles list and entire_sub_text
+    subtitles = [{'index': i+1, 'timestamp': timestamp, 'text': text.replace('\n', '')} for i, (_, timestamp, text) in enumerate(matches)]
     entire_sub_text = ''.join(sub['text'] for sub in subtitles)
+
     return subtitles, entire_sub_text
 
 # Step 2: Read the book file
