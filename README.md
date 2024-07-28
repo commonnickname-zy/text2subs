@@ -36,4 +36,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - Support for .epub text source
 - Support for more languages
 - Improved performance
+- Rewrite diff algorithm from scratch
+  
   
