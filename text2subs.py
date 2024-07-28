@@ -306,7 +306,7 @@ def main():
 
     srt_subtitles, entire_sub_text = extract_text_from_srt(args.subtitle_path)
     book_text = read_book_file(args.text_path)
-    
+
     diff_list = generate_diff_list(entire_sub_text, book_text)
     if args.debug:
         write_diff_list_to_file(diff_list, f'{output_filename}_1_diff.txt')
@@ -334,4 +334,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
