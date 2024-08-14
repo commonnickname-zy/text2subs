@@ -3,6 +3,13 @@ import difflib
 import argparse
 import os
 from itertools import takewhile
+from adjust_punctuation_ja import adjust_punctuation_ja
+from adjust_punctuation_en import adjust_punctuation_en
+
+config = {
+    "lang": None,        # Will hold the language code
+    "book_format": None  # Will hold the book file extension
+}
 
 # Step 1: Extract text from SRT file
 # additional automatic cleanup can be performed here
@@ -22,10 +29,24 @@ def extract_text_from_srt(srt_file):
 # Step 2: Read the book file
 # additional automatic cleanup can be performed here
 def read_book_file(book_file):
-    with open(book_file, 'r', encoding='utf-8') as file:
-        book_text = file.read()
-    book_text = re.sub(r'\n+', '', book_text)  # remove newlines
-    return book_text
+    # Determine the file extension
+    _, file_extension = os.path.splitext(book_file)
+
+    # Set the text_format in config
+    config['book_format'] = file_extension.lower()
+    
+    if file_extension.lower() == '.txt':
+        # If it's a .txt file, read and process it as text
+        with open(book_file, 'r', encoding='utf-8') as file:
+            book_text = file.read()
+        book_text = re.sub(r'\n+', '', book_text)  # remove newlines
+        return book_text
+    elif file_extension.lower() == '.srt':
+        # If it's a .srt file, extract text using the extract_text_from_srt function
+        _, book_text = extract_text_from_srt(book_file)
+        return book_text
+    else:
+        raise ValueError(f"Unsupported file format {file_extension}. Please provide a .txt or .srt file.")
 
 # Step 3: Generate a diff list
 # using the default Python difflib implementation to construct a difference between subtitles and the book
@@ -46,9 +67,9 @@ def get_lcs(a: str, b: str, memo={}):
 
     head_a, tail_a = a[0], a[1:]
     without_head_a = get_lcs(tail_a, b)
-    with_head_a = "" if (found := b.find(head_a)) < 0 else head_a + get_lcs(tail_a, b[found+1:], memo)
+    with_head_a = "" if (f := b.find(head_a)) < 0 else head_a + get_lcs(tail_a, b[f+1:], memo)
 
-    memo[(a, b)] = with_head_a if len(with_head_a) > len(without_head_a) else without_head_a
+    memo[(a, b)] = max([with_head_a, without_head_a], key=len)
         
     return memo[(a, b)]
     
@@ -196,76 +217,7 @@ def generate_new_subtitles(mapped_diff_list, srt_subtitles):
 
     return new_subtitles
 
-# Step 8: Adjust punctuation
-def adjust_punctuation_ja(subtitles):
-    # Move punctuation marks to the correct positions for Japanese
-    adjusted_subtitles = []
-
-    for i in range(len(subtitles) - 1):
-        current_sub = subtitles[i]
-        next_sub = subtitles[i + 1]
-
-        # Move these characters to the end of the current subtitle
-        if next_sub['text'] and next_sub['text'][0] in '）｝］】」』〟。、！？':
-            current_sub['text'] += next_sub['text'][0]
-            next_sub['text'] = next_sub['text'][1:]
-
-        # Move these characters to the beginning of the next subtitle
-        if current_sub['text'] and current_sub['text'][-1] in '（｛［【「『〝':
-            next_sub['text'] = current_sub['text'][-1] + next_sub['text']
-            current_sub['text'] = current_sub['text'][:-1]
-
-        # Ensure the current subtitle text is trimmed properly
-        current_sub['text'] = current_sub['text'].strip()
-        next_sub['text'] = next_sub['text'].strip()
-
-        adjusted_subtitles.append(current_sub)
-
-    # Append the last subtitle as it is
-    adjusted_subtitles.append(subtitles[-1])
-
-    return adjusted_subtitles
-
-def adjust_punctuation_en(subtitles):
-    # Move punctuation marks to the correct positions for English
-    adjusted_subtitles = []
-
-    for i in range(len(subtitles) - 1):
-        current_sub = subtitles[i]
-        next_sub = subtitles[i + 1]
-
-        # Trim spaces at the ends of the current subtitle
-        current_sub['text'] = current_sub['text'].strip()
-        next_sub['text'] = next_sub['text'].strip()
-
-        # If the next subtitle starts with a punctuation mark that should be at the end of the current subtitle
-        if next_sub['text'] and next_sub['text'][0] in '.,;!?':
-            current_sub['text'] += next_sub['text'][0]
-            next_sub['text'] = next_sub['text'][1:].lstrip()
-
-        # If the current subtitle ends with an opening quote or bracket
-        if current_sub['text'] and current_sub['text'][-1] in '"\'([{':
-            next_sub['text'] = current_sub['text'][-1] + ' ' + next_sub['text']
-            current_sub['text'] = current_sub['text'][:-1].rstrip()
-
-        # If the current subtitle ends with a hyphen indicating a split word
-        if current_sub['text'] and current_sub['text'][-1] == '-':
-            current_sub['text'] = current_sub['text'].rstrip('-')
-            next_sub['text'] = current_sub['text'].split()[-1] + next_sub['text']
-
-        # Ensure the next subtitle text starts with an uppercase letter if appropriate
-        if next_sub['text'] and next_sub['text'][0].isalnum() and not next_sub['text'][0].isupper():
-            next_sub['text'] = next_sub['text'][0].upper() + next_sub['text'][1:]
-
-        adjusted_subtitles.append(current_sub)
-
-    # Append the last subtitle as it is
-    adjusted_subtitles.append(subtitles[-1])
-
-    return adjusted_subtitles
-
-    
-# Step 9: Write new subtitles to file
+# Step 8: Write new subtitles to file
 def write_srt_file(subtitles, output_file):
     with open(output_file, 'w', encoding='utf-8') as file:
         for sub in subtitles:
@@ -298,6 +250,9 @@ def main():
 
     args = parser.parse_args()
 
+    # Set the lang in config
+    config['lang'] = args.lang
+    
     if not args.subtitle_path or not args.text_path or not args.output_path:
         parser.print_help()
         return
@@ -327,10 +282,12 @@ def main():
     if args.lang in lang_to_punctuation_func:
         if args.debug:
             write_srt_file(new_subs, f'{output_filename}_5_new_raw_subs.srt')
-        adjusted_subs = lang_to_punctuation_func[args.lang](new_subs)
+        #Step 8 adjust punctionation
+        adjusted_subs = lang_to_punctuation_func[args.lang](new_subs, config)
         write_srt_file(adjusted_subs, args.output_path)
     else:
         write_srt_file(new_subs, args.output_path)
 
 if __name__ == "__main__":
     main()
+
